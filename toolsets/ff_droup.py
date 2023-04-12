@@ -47,59 +47,53 @@ def feature_finding(ms1, ms2):
     # for feature
 
 def get_feature(ms2,current_pmz_bin,ms1):
-   current_cluster = quick_search_values(ms2, 'ms1_pmz', value_start=current_pmz_bin-0.005, value_end=current_pmz_bin+0.005)
-   # print()
-   features_all = pd.DataFrame()
-   rt_list, intensity_list = get_EIC_list(ms1, current_pmz_bin)
-   while len(current_cluster)>0:
-       # print('length of file is: ', len(current_cluster))
-       seed_ms2 = current_cluster.iloc[np.argmax(current_cluster['ms1_precursor_intensity'])]
-       # rt_list, intensity_list = get_EIC_list(ms1, seed_ms2['ms1_pmz'])
-       # rt_cnt, int_list = ff.centroid_data(rt_list, intensity_list)
+    current_cluster = quick_search_values(ms2, 'ms1_pmz', value_start=current_pmz_bin-0.005, value_end=current_pmz_bin+0.005)
+    # print('i am in new!')
+    features_all = pd.DataFrame()
+    rt_list, intensity_list = get_EIC_list(ms1, current_pmz_bin)
+    while len(current_cluster)>0:
 
-       peak_list = get_peaks(intensity_list)
-       target_peak_idx = find_most_close(peak_list, rt_list, seed_ms2['rt'], return_index=True)
+        seed_ms2 = current_cluster.iloc[np.argmax(current_cluster['ms1_precursor_intensity'])]
+        peak_list = get_peaks(intensity_list)
+        target_peak_idx = find_most_close(peak_list, rt_list, seed_ms2['rt'], return_index=True)
+        if len(peak_list) >0 and target_peak_idx != -1:
 
+            target_peak = connect_peaks(peak_list, target_peak_idx, intensity_list, rt_list)
+            rt_start, rt_end = rt_list[target_peak[0]], rt_list[target_peak[2]]
+            rt_apex, int_apex = get_centroid(target_peak, rt_list, intensity_list)
+            current_cluster_rt_sorted = current_cluster.sort_values(by = 'rt', ascending=True)
+            ms2_under_peaks  = quick_search_values(current_cluster_rt_sorted, 'ms1_rt', value_start=rt_start, value_end=rt_end)
 
-       if len(peak_list) >0 and target_peak_idx != -1:
-           target_peak = connect_peaks(peak_list, target_peak_idx, intensity_list, rt_list)
-           rt_start, rt_end = rt_list[target_peak[0]], rt_list[target_peak[2]]
-           rt_apex, int_apex = get_centroid(target_peak, rt_list, intensity_list)
-           current_cluster_rt_sorted = current_cluster.sort_values(by = 'rt', ascending=True)
-           ms2_under_peaks  = quick_search_values(current_cluster_rt_sorted, 'ms1_rt', value_start=rt_start, value_end=rt_end)
+            ms2_under_peaks['rt']=rt_apex
+            ms2_under_peaks['rt_offset']=abs(rt_apex-seed_ms2['rt'])
+            ms2_under_peaks['rt_start']=rt_start
+            ms2_under_peaks['rt_end']=rt_end
+            ms2_under_peaks['precursor_mz']=(ms2_under_peaks['precursor_mz']*ms2_under_peaks['ms1_precursor_intensity']).sum()/(ms2_under_peaks['ms1_precursor_intensity'].sum())
 
-           ms2_under_peaks['rt']=rt_apex
-           ms2_under_peaks['rt_offset']=rt_apex-seed_ms2['rt']
-           ms2_under_peaks['rt_start']=rt_start
-           ms2_under_peaks['rt_end']=rt_end
-           ms2_under_peaks['precursor_mz']=(ms2_under_peaks['precursor_mz']*ms2_under_peaks['ms1_precursor_intensity']).sum()/(ms2_under_peaks['ms1_precursor_intensity'].sum())
-           # pmzs = []
-           # intensities = []
-           # for i in range(target_peak[0], target_peak[2]+1):
-           #     pmz_ms1, precursor_intensity, mz_offset= _extract_precursor_intensity(ms1.iloc[i]['peaks'], current_pmz_bin)
-           #     pmzs.append(pmz_ms1)
-           #     intensities.append(precursor_intensity)
-           # ms2_under_peaks['precursor_mz']=sum(x * y for x, y in zip(pmzs, intensities))/sum(intensities)
+            ms2_under_peaks['peak_apex_intensity']=int_apex
 
-
-           ms2_under_peaks['peak_apex_intensity']=int_apex
-
-           ms2_under_peaks['peaks']=so.weighted_average_spectra(ms2_under_peaks, weight_col= 'ms1_precursor_intensity')
-           ms2_under_peaks['peak_range_idx'] = ms2_under_peaks.apply(lambda x: list(target_peak), axis=1)
-           ms2_under_peaks['ms2_range_idx'] = ms2_under_peaks.apply(lambda x: list(ms2_under_peaks['scan_idx'].unique()), axis=1)
-           ms2_under_peaks['pmz_bin']=current_pmz_bin
-           ms2_under_peaks.drop(['scan_idx', 'cycle', 'isolation_window', 'ms1_pmz', 'ms1_precursor_intensity', 'peak_purity', 'mz_offset', 'ms1_pmz', 'ms1_rt'], axis =1, inplace = True)
-           current_cluster.drop(ms2_under_peaks.index, inplace = True)
-           features_all=pd.concat([features_all,pd.DataFrame([ms2_under_peaks.iloc[0]]) ], axis=0)
-       else:
+            ms2_under_peaks['peaks']=so.weighted_average_spectra(ms2_under_peaks, weight_col= 'ms1_precursor_intensity')
+            ms2_under_peaks['peak_range_idx'] = ms2_under_peaks.apply(lambda x: list(target_peak), axis=1)
+            ms2_under_peaks['ms2_range_idx'] = ms2_under_peaks.apply(lambda x: list(ms2_under_peaks['scan_idx'].unique()), axis=1)
+            ms2_under_peaks['pmz_bin']=current_pmz_bin
+            ms2_under_peaks.drop(['scan_idx', 'cycle', 'isolation_window', 'ms1_pmz', 'ms1_precursor_intensity', 'peak_purity', 'mz_offset', 'ms1_pmz', 'ms1_rt'], axis =1, inplace = True)
+            current_cluster.drop(ms2_under_peaks.index, inplace = True)
+            features_all=pd.concat([features_all,pd.DataFrame([ms2_under_peaks.iloc[0]]) ], axis=0)
+        else:
+            current_cluster = string_search(current_cluster, 'scan_idx', seed_ms2.scan_idx, reverse=True)
            # print('npmax', np.argmax(current_cluster['ms1_precursor_intensity']))
-           current_cluster = string_search(current_cluster, 'scan_idx', seed_ms2.scan_idx, reverse=True)
+           
            # break
-
-
-
-
-   return(features_all)
+    if len(features_all)>0:
+        features_tidy = pd.DataFrame()
+        for rt in features_all['rt'].unique():
+            feature_rt = string_search(features_all, 'rt', rt)
+            feature_rt.sort_values(by = 'rt_offset', inplace= True, ignore_index=True, ascending=True)
+            features_tidy= features_tidy.append(feature_rt.iloc[0])
+        features_tidy.reset_index(inplace=True, drop=True)
+        return(features_tidy)
+    else:
+        return(features_all)
 
 
 def connect_peaks(peak_list, target_peak_idx, intensity_list, rt_list):
